@@ -28,9 +28,6 @@
 #include <avr/interrupt.h>
 #include <math.h>
 
-const static uint8_t mc_1_RX = 8;
-const static uint8_t mc_1_TX = 9;
-
 // these pins should never change so they are declared const
 const uint8_t a_channel_pin = 2;
 const uint8_t b_channel_pin = 3;
@@ -45,6 +42,7 @@ static const double enc_scale_deg = 360.0 / (ppr * 4);
 // keeping time
 uint32_t current_ms;
 uint32_t previous_ms = 0;
+int interval_ms = 100;
 
 double motor_RPM;
 double delta_pos = 0.0;
@@ -61,7 +59,6 @@ void setup()
   attachInterrupt(digitalPinToInterrupt(a_channel_pin), encoder_isr, CHANGE);
   attachInterrupt(digitalPinToInterrupt(b_channel_pin), encoder_isr, CHANGE);
 
-  // TODO: implement speed calculation function
   previous_ms = 0;
   Serial.begin(115200);
   pos = 0;
@@ -72,6 +69,7 @@ void loop()
   // non-volatile version of the encoder count
   static int32_t current_enc_count;
   static uint32_t loop_count = 0;
+  static double calc_rpm;
 
   // stop all interrupts while reading enc_count - this prevents interrupts from firing while we read/write enc_count
   cli();
@@ -103,6 +101,11 @@ void loop()
   else {
     ;;
   }
+  
+  // calculate speed
+  current_ms = millis();
+  calc_rpm = (current_enc_count * enc_scale_deg / 360.0) / ((double)(current_ms - previous_ms))  * 60000.0;
+  previous_ms = current_ms;
 
   Serial.print(F("loop no. "));
   Serial.println(loop_count);
@@ -110,26 +113,13 @@ void loop()
   Serial.println(delta_pos, 4);
   Serial.print(F("current position: "));
   Serial.println(pos, 4);
+  Serial.print(F("current speed: "));
+  Serial.println(calc_rpm, 2);
   loop_count++;
-  delay(5000);
+  delay(1000);
 }
 
 // functions and things 
-
-/*This function calculates the speed of the motor by averaging the number of pulses on both the a and b channels of the encoder in one time period and divides by the time period 
-and pulses per revolution*/
-double speed_calculation(int a_counter, int b_counter, int time_interval, int ppr)
-{
-  //average a and b channels
-  int avg_pulses = (a_counter + b_counter)/2;
-
-  //time
-  //double interval_sec = time_interval/1000;
-  //hard coded for now--the 0.1 is corresponding the length of the interval time in seconds
-  motor_RPM = avg_pulses/0.1 / ppr * 60;
-  return motor_RPM;
-}
-
 //-----ISRs-----
 /*Interrupt service routine--an ISR is a special function that runs when the conditions for the interrupt that are set above are met
 These generally need to be short and efficient pieces of code, especially if we're trying to measure motor speed. The Arduino will 
