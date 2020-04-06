@@ -1,7 +1,7 @@
 /************************************************************************
  * EK210 Electrical: Quadrature Motor Encoder demo code
  * Written by Calvin Lin
- * v.1 -- April 6, 2020
+ * v.0.1 -- April 6, 2020
  * 
  * Copyright (C) 2020 Boston University
  * This code is intended to be a open source demo 
@@ -27,11 +27,9 @@
 
 #include <avr/interrupt.h>
 #include <math.h>
-#include <SoftwareSerial.h>
 
 const static uint8_t mc_1_RX = 8;
 const static uint8_t mc_1_TX = 9;
-SoftwareSerial smcSerial = SoftwareSerial(mc_1_RX, mc_1_TX);
 
 // these pins should never change so they are declared const
 const uint8_t a_channel_pin = 2;
