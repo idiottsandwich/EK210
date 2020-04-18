@@ -1,7 +1,7 @@
 /************************************************************************
  * EK210 Electrical: Quadrature motor encoder position control
  * Written by Calvin Lin
- * v.0.2 -- April 12, 2020
+ * v.0.2 -- April 17, 2020
  * 
  * Copyright (C) 2020 Boston University
  * This code is intended to be a open source demo 
@@ -56,6 +56,8 @@ static const double enc_scale_deg = 360.0 / (ppr * 4);
 // keeping time
 uint32_t print_time_ms_prev = 0;
 uint32_t print_time_ms;
+uint32_t pid_timer_prev;
+uint32_t pid_timer;
 
 // motor position variables
 double motor_RPM;
@@ -85,11 +87,13 @@ void setup()
   
   // Next, send the Exit Safe Start command, which clears the safe-start violation and lets the motor run.
   exitSafeStart();
+  pid_timer_prev = 0;
+  pid_timer = 0;
 } // end of setup
 
 void loop() 
 {
-
+  pid_timer = millis();
   // non-volatile version of the encoder count
   static int32_t current_enc_count;
   static uint32_t loop_count = 0;
@@ -98,6 +102,9 @@ void loop()
   static double* p_pos_request = &pos_req;
   static int16_t speed_cmd = 0;
   static double error = 0;
+  static double delta_t;
+  static double last_integral = 0.0;
+  static double* ptr_last_integral = &last_integral;
   
   // stop all interrupts while reading enc_count - this prevents interrupts from firing while we read/write enc_count
   cli();
@@ -117,19 +124,21 @@ void loop()
  
   // pos_req = readPwrReq(pos_req);
   error = pos_req - pos;
+  delta_t = pid_timer - pid_timer_prev;
 
   // power request is now a position request
-  if (fabs(error) > 20.0) {
-    speed_cmd = calc_kp_speed(pos, pos_req);
+  if (fabs(error) > 1.0) {
+    speed_cmd = calc_pid_speed(pos, pos_req, double(delta_t), ptr_last_integral);
     pwr_req_send(speed_cmd);
   }
   else {
     speed_cmd = 0;
     pwr_req_send(speed_cmd);
+    *ptr_last_integral = 0.0;
   } // end if fabs(error) > 2.0
 
   print_time_ms = millis();
-  if (print_time_ms - print_time_ms_prev > 200.0) {
+  if (print_time_ms - print_time_ms_prev > 100.0) {
     Serial.print(F("-----------------loop no.            "));
     Serial.println(loop_count);
     Serial.print(F("pos req:            "));
@@ -140,9 +149,13 @@ void loop()
     Serial.println(speed_cmd);
     Serial.print(F("current error:      "));
     Serial.println(error);
+    Serial.print(F("last integral:      "));
+    Serial.println(last_integral);
     loop_count++;
     print_time_ms_prev = print_time_ms;
   } // end if print_time_ms 
+
+  pid_timer_prev = pid_timer;
 } // end of main loop
 
 
@@ -159,7 +172,7 @@ int16_t calc_kp_speed(double current_point, double set_point) {
     mapped_diff = (360 - current_diff) * -1 * kp;
   }
   else if (current_diff < -180.0) {
-    mapped_diff = 360 + current_diff * kp;
+    mapped_diff = (360 + current_diff) * kp;
   }
   else {
     mapped_diff = current_diff * kp;
@@ -184,6 +197,58 @@ int16_t calc_kp_speed(double current_point, double set_point) {
 
   return mapped_speed;
 } // end of calc_kp_speed
+
+int16_t calc_pid_speed(double current_point, double set_point, double dt, double* p_last) {
+   //map speed based on magnitude of difference (linear mapping)
+  double kp = 1;
+  double ki = 0.01;
+  double kd = 1;
+  double current_diff = set_point - current_point;
+  double mapped_diff;
+  double error_rate = 0.0; 
+  double integral = 0.0;
+  double last_integral = *p_last;
+  // double integral = ((set_point - current_point) * dt) + last_error;
+  double pid_calc = (kp * current_diff) + (kd * error_rate); //(ki * integral);
+
+  // going the shortest way to the commanded position
+  if (current_diff >= 180.0) {
+    error_rate = (360 - current_diff) /  dt;
+    integral = (360 - current_diff) * dt + last_integral;
+    mapped_diff = ((360 - current_diff) * -1 * kp)  +  (error_rate * kd) + (integral * ki);
+  }
+  else if (current_diff < -180.0) {
+    error_rate = (360 + current_diff) / dt;
+    integral = (360 + current_diff) * dt + last_integral;
+    mapped_diff = ((360 + current_diff) * kp) - (error_rate * kd) - (integral * ki);
+  }
+  else {
+    error_rate = (set_point - current_point) / dt;
+    integral = (current_diff * dt) + last_integral;
+    mapped_diff = (current_diff * kp)  + (error_rate * kd) + (integral * ki);
+  }// end if current_diff > 180
+
+  *p_last = integral;
+  
+  int16_t mapped_speed = 0;
+
+  if (mapped_diff >= 0.0) {
+    mapped_speed = int16_t(mapped_diff + 0.5); //apparently casting doubles requires this?
+  }
+  else {
+    mapped_speed = int16_t(mapped_diff - 0.5);
+  }
+  int16_t abs_speed = abs(mapped_speed);
+  //set lower limit independent of direction
+//  if (abs_speed < 65) {
+//    mapped_speed = abs_speed / mapped_speed * 65; // this keeps the sign correct
+//  }
+  if (abs_speed > 600) {
+    mapped_speed = abs_speed / mapped_speed * 600;
+  } // end if mapped_dif >= 0.0
+
+  return mapped_speed;
+} // end of calc_pid_speed
 
 
 // this function takes the old position of the motor and calculates the new position based on encoder ticks
