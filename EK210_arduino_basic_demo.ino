@@ -1,7 +1,7 @@
 /************************************************************************
  * EK210 Electrical: Arduino demo project
  * Written by Calvin Lin
- * v.0.1 -- May 3, 2020
+ * v.1.0 -- June 1, 2020
  * 
  * Copyright (C) 2020 Boston University
  * This code is intended to be a open source demo 
@@ -39,7 +39,8 @@ static const int temp_read_pin = A0;
 which allows for decimal readings.*/  
 static int temp_adc_read;
 static double temperature;
-static double set_point = 20.0; // Change this value to change the system's target temperature
+static double voltage;
+static double set_point = 23.0; // Change this value to change the system's target temperature
 
 // Step 2: Initialize pins and serial communication in the setup loop 
 void setup() {
@@ -61,9 +62,12 @@ void loop() {
   // read the ADC value from the temperature measurement pin
   temp_adc_read = analogRead(temp_read_pin);
 
-  /* The code in the inner two parentheses converts the ADC output (integer) to a voltage of type double. From the datasheet, the TMP36 
-     output equation is: Temperature (Celsius) = (100 * Voltage) + 0.750. We can use this to perform the engineering unit conversion */
-  temperature = (((double)temp_adc_read * 5.0 / 1023.0) / 0.010) + 0.750; 
+  /* we convert the ADC integer to analog voltage by dividing by the 2^ADC resolution (10-bit) and multiplying by Vsupply. The TMP36 reads 
+  from -50 to 125 degrees C, so we want an ADC reading of 0 to equal -50 * 0.010V = 0.5. By subtracting 0.5 from our reading we offset the
+  zero reading by -50 degress. All that's left to do is to divide the shifted voltage by the scale (0.010 V/C), and we get the converted 
+  temperature */
+  voltage = (((double)temp_adc_read / 1024.0) * 5.0);
+  temperature = (voltage - 0.5) / 0.010;
 
   // main comparison 
   if (temperature > set_point) {
